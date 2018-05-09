@@ -1,0 +1,2 @@
+rootProject.name = 'sharespace'
+include 'server', 'database:migrations', 'database:jooq'

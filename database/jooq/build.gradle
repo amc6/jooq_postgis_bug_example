@@ -1,0 +1,101 @@
+buildscript {
+    ext.jooq_version = '3.10.7'
+    dependencies {
+        project(":database:migrations")
+    }
+}
+
+plugins {
+    id 'nu.studer.jooq' version '2.0.11'
+}
+
+apply plugin: 'java'
+
+dependencies {
+    compile "org.jooq:jooq:$jooq_version"
+    compile "org.jooq:jooq-meta:$jooq_version"
+    compile "org.jooq:jooq-codegen:$jooq_version"
+    compile "org.postgresql:postgresql:42.1.4"
+    compile group: 'net.postgis', name: 'postgis-jdbc', version: '2.2.1'
+
+
+    compile project(":database:migrations")
+    jooqRuntime group: 'org.postgresql', name: 'postgresql', version: '42.1.4'
+}
+
+jooq {
+    version = "$jooq_version"
+    edition = 'OSS'
+    sharespace(sourceSets.main) {
+        jdbc {
+            driver = 'org.postgresql.Driver'
+            url = 'jdbc:postgresql:jooqdb'
+            user = 'postgres'
+            password = ''
+        }
+        generator {
+            name = 'org.jooq.util.JavaGenerator'
+            database {
+                name = 'org.jooq.util.postgres.PostgresDatabase'
+                schemata {
+                    schema {
+                        inputSchema = 'public'
+                    }
+                    schema {
+                        inputSchema = 'postgis'
+                    }
+                }
+                includes = '.*'
+                excludes = '' +
+                        'schema_version' +
+                        '|flyway_schema_version' +
+                        '|flyway_schema_history' +
+                        // See https://groups.google.com/forum/#!topic/jooq-user/GdA4Dd2C1Gc for reason behind postgis exclusion
+                        '|st_approxhistogram' +
+                        '|_?st_histogram' +
+                        '|st_approxquantile' +
+                        '|st_pixelofvalue' +
+                        '|_?st_valuecount' +
+                        '|_?st_quantile' +
+                        '|st_valuepercent' +
+                        '|_st_tile' +
+                        '|st_dumpvalues'
+                forcedTypes {
+                    // https://www.jooq.org/doc/3.10/manual/code-generation/custom-data-type-bindings/
+                    forcedType {
+                        userType = 'org.postgis.Geometry'
+                        binding = 'com.sharespace.database.PostGisGeographyBinding'
+                        types = '(.*geography.*|.*GEOGRAPHY.*)'
+                    }
+                }
+            }
+            target {
+                packageName = 'com.sharespace.database'
+            }
+        }
+    }
+}
+
+// Never consider jooq generation up-to-date so that this command always regenerates code.
+project.tasks.getByName('generateSharespaceJooqSchemaSource').outputs.upToDateWhen { false }
+
+task createFreshJooqDB {
+    doLast {
+        exec {
+            commandLine "psql", "postgres", "-c", "DROP DATABASE IF EXISTS jooqdb;"
+        }
+        exec {
+            commandLine "psql", "postgres", "-c", "CREATE DATABASE jooqdb;"
+        }
+    }
+}
+
+task runJooqMigrations(dependsOn: [createFreshJooqDB, ':database:migrations:classes'], type: JavaExec) {
+    doFirst {
+        classpath = project(':database:migrations').sourceSets.main.runtimeClasspath
+        main = "com.sharespace.database.DatabaseMigrator"
+        args "jdbc:postgresql:jooqdb"
+    }
+}
+
+generateSharespaceJooqSchemaSource.dependsOn runJooqMigrations

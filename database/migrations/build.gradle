@@ -1,0 +1,6 @@
+apply plugin: 'java'
+
+dependencies {
+    compile group: 'org.postgresql', name: 'postgresql', version: '42.1.4'
+    compile "org.flywaydb:flyway-core:5.0.7"
+}
